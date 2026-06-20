@@ -418,9 +418,9 @@ def train(
 
         for cls_idx, (img_tensor, cam_tensor) in cam_samples.items():
             cls_name = dataset.class_names[cls_idx]
-            pred_idx = cam_tensor.mean(dim=(1, 2)).argmax().item()
+            # 用真实类别的激活图，看模型对该类"关注"了哪里
             save_cam_heatmap(
-                img_tensor, cam_tensor, pred_idx, dataset.class_names,
+                img_tensor, cam_tensor, cls_idx, dataset.class_names,
                 save_path=epoch_cam_dir / f'{cls_name}.png'
             )
 
