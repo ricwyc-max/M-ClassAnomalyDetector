@@ -541,6 +541,106 @@ class DWConvTranspose2d(nn.Module):
 
 
 
+class DWBottleneckBlock(nn.Module):
+    """
+    深度可分离瓶颈残差块（Depthwise Separable Bottleneck Block）
+    前激活（Pre-activation / ResNet-v2）风格，支持分辨率因子和宽度因子
+
+    与标准 Bottleneck 的区别：
+        标准：BN→ReLU→Conv1x1 → BN→ReLU→Conv3x3 → BN→ReLU→Conv1x1 → Add
+        深度可分离：BN→ReLU→Conv1x1 → BN→ReLU→DW_Conv3x3+PW_Conv1x1 → BN→ReLU→Conv1x1 → Add
+
+    因子说明：
+        width_factor (α):  宽度因子，缩放中间通道数 mid_channels = mid_channels * α
+                           α < 1 更轻量，α > 1 更宽（特征表达能力更强）
+        resolution_factor (ρ): 分辨率因子，在模型 forward 中缩放输入图像尺寸
+                               ρ < 1 降分辨率（加速），ρ > 1 超分辨率（更精细）
+                               本块不直接使用，由 ResNet50 统一处理
+
+    Args:
+        in_channels:       输入通道数
+        mid_channels:      中间通道数（瓶颈窄通道，会被 width_factor 缩放）
+        out_channels:      输出通道数（默认=mid_channels * 4 * width_factor）
+        stride:            步长（放在 DW Conv，用于空间下采样）
+        downsample:        下采样层（尺寸/通道不匹配时使用）
+        activation:        激活函数 ('relu' 或 'leaky_relu')
+        width_factor:      宽度因子 α，默认 1.0
+    """
+
+    expansion = 4
+
+    def __init__(self, in_channels, mid_channels, out_channels=None, stride=1,
+                 downsample=None, activation='relu', width_factor=1.0):
+        super().__init__()
+
+        # 应用宽度因子缩放中间通道数
+        self.mid_channels = max(1, int(mid_channels * width_factor))
+
+        if out_channels is None:
+            out_channels = self.mid_channels * self.expansion
+        else:
+            # out_channels 也按 width_factor 缩放
+            out_channels = max(1, int(out_channels * width_factor))
+
+        self.downsample = downsample
+        self.stride = stride
+
+        # ===== 前激活 + 深度可分离卷积 =====
+        # 第1层：1x1 卷积降维
+        self.bn1 = nn.BatchNorm2d(in_channels)
+        self.conv1 = nn.Conv2d(in_channels, self.mid_channels, kernel_size=1, bias=False)
+
+        # 第2层：深度可分离卷积（DW 3x3 + PW 1x1）
+        self.bn2 = nn.BatchNorm2d(self.mid_channels)
+        # 逐通道卷积：每个通道独立做 3x3 卷积
+        self.dw_conv = nn.Conv2d(self.mid_channels, self.mid_channels, kernel_size=3,
+                                 stride=stride, padding=1,
+                                 groups=self.mid_channels, bias=False)
+        # 逐点卷积：1x1 卷积混合通道
+        self.pw_conv = nn.Conv2d(self.mid_channels, self.mid_channels,
+                                 kernel_size=1, bias=False)
+
+        # 第3层：1x1 卷积升维
+        self.bn3 = nn.BatchNorm2d(self.mid_channels)
+        self.conv3 = nn.Conv2d(self.mid_channels, out_channels, kernel_size=1, bias=False)
+
+        # 激活函数
+        if activation == 'relu':
+            self.activation = nn.ReLU(inplace=True)
+        elif activation == 'leaky_relu':
+            self.activation = nn.LeakyReLU(0.1, inplace=True)
+        else:
+            raise ValueError(f"Unsupported activation: {activation}")
+
+    def forward(self, x):
+        identity = x
+
+        # BN → ReLU → Conv1x1（降维）
+        out = self.bn1(x)
+        out = self.activation(out)
+        out = self.conv1(out)
+
+        # BN → ReLU → DW_Conv3x3 → PW_Conv1x1（深度可分离）
+        out = self.bn2(out)
+        out = self.activation(out)
+        out = self.dw_conv(out)
+        out = self.pw_conv(out)
+
+        # BN → ReLU → Conv1x1（升维）
+        out = self.bn3(out)
+        out = self.activation(out)
+        out = self.conv3(out)
+
+        # 下采样（如果需要）
+        if self.downsample is not None:
+            identity = self.downsample(identity)
+
+        # 跳跃连接（直接相加，不加激活）
+        out += identity
+
+        return out
+
+
 if __name__ == '__main__':
 
     # ==================== 像 tf.keras.Sequential 一样直接搭 ====================

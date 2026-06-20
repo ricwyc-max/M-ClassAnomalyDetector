@@ -83,6 +83,10 @@ def save_cam_heatmap(image_tensor, cam_tensor, class_idx, class_names, save_path
     heatmap = cv2.applyColorMap(cam, cv2.COLORMAP_JET)
     heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
 
+    # CAM 尺寸可能与原图不同（resolution_factor < 1 时），resize 到原图尺寸
+    if heatmap.shape[:2] != img.shape[:2]:
+        heatmap = cv2.resize(heatmap, (img.shape[1], img.shape[0]), interpolation=cv2.INTER_LINEAR)
+
     # 叠加原图和热力图
     overlay = cv2.addWeighted(img, 0.5, heatmap, 0.5, 0)
 
@@ -208,6 +212,9 @@ def train(
     batch_size=16,
     lr=1e-3,
     img_size=224,
+    use_dw=False,
+    width_factor=1.0,
+    resolution_factor=1.0,
     device='cuda',
     save_path='best_model.pth',
     cam_dir='./cam_outputs',
@@ -222,6 +229,9 @@ def train(
         batch_size: 批大小
         lr: 学习率
         img_size: 统一输入尺寸（resize 到正方形），默认 224
+        use_dw: 是否使用深度可分离残差块，默认 False
+        width_factor: 宽度因子 α，缩放中间通道数，默认 1.0
+        resolution_factor: 分辨率因子 ρ，缩放输入图像尺寸，默认 1.0
         device: 设备（'cuda' 或 'cpu'）
         save_path: 模型保存路径
         cam_dir: CAM 热力图输出目录
@@ -262,8 +272,12 @@ def train(
     logger.log(f"训练集: {len(train_dataset)} 张, 验证集: {len(val_dataset)} 张")
 
     # ---------- 模型 ----------
-    model = ResNet50(num_classes=num_classes, in_channels=3)
+    model = ResNet50(num_classes=num_classes, in_channels=3,
+                     use_dw=use_dw, width_factor=width_factor,
+                     resolution_factor=resolution_factor)
     model = model.to(device)
+    block_type = 'DWBottleneck' if use_dw else 'Bottleneck'
+    logger.log(f"模型: ResNet50({block_type}, α={width_factor}, ρ={resolution_factor})")
     logger.log(f"模型参数量: {sum(p.numel() for p in model.parameters()):,}")
 
     # ---------- CAM 输出目录 ----------
@@ -441,9 +455,12 @@ if __name__ == '__main__':
     train(
         data_dir='./data/augmented',
         num_epochs=50,
-        batch_size=4,
+        batch_size=32,
         lr=1e-3,
         img_size=224,
+        use_dw=False,              # True 用深度可分离，False 用标准 Bottleneck
+        width_factor=1.0,          # 宽度因子 α（0.5=轻量，1.0=标准，2.0=更宽）
+        resolution_factor=1.0,     # 分辨率因子 ρ（0.5=低分辨率加速，1.0=标准）
         device='cuda',
         save_path='best_model.pth',
         cam_dir='./cam_outputs',

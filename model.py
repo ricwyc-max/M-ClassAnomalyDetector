@@ -1,68 +1,32 @@
 """
 ResNet-50 模型定义（多尺度特征融合版本）
-基于 addBlock.py 中的 ResidualBottleneckBlock（前激活 / ResNet-v2 风格）
+基于 addBlock.py 中的 ResidualBottleneckBlock 和 DWBottleneckBlock
 
-ResNet-50 多尺度特征融合结构：
-    Input (B, 3, H, W)  — H, W 为任意尺寸，需 >= 224
-    │
-    ├── Stem ─────────────────────────────────────────────────────
-    │   Conv2d(3→64, 7×7, stride=2, padding=3)   → 64×(H/2)×(W/2)
-    │   MaxPool2d(3×3, stride=2, padding=1)       → 64×(H/4)×(W/4)
-    │                                                ↓ 上采样到 H×W
-    │
-    ├── Stage 1 (layer1) ────────────────────────────────────────
-    │   3 × Bottleneck(mid=64,  out=256)           → 256×(H/4)×(W/4)
-    │                                                ↓ 上采样到 H×W
-    │
-    ├── Stage 2 (layer2) ────────────────────────────────────────
-    │   1 × Bottleneck(mid=128, out=512, stride=2) → 512×(H/8)×(W/8)
-    │   3 × Bottleneck(mid=128, out=512)           → 512×(H/8)×(W/8)
-    │                                                ↓ 上采样到 H×W
-    │
-    ├── Stage 3 (layer3) ────────────────────────────────────────
-    │   1 × Bottleneck(mid=256, out=1024, stride=2)→ 1024×(H/16)×(W/16)
-    │   5 × Bottleneck(mid=256, out=1024)          → 1024×(H/16)×(W/16)
-    │                                                ↓ 上采样到 H×W
-    │
-    ├── Stage 4 (layer4) ────────────────────────────────────────
-    │   1 × Bottleneck(mid=512, out=2048, stride=2)→ 2048×(H/32)×(W/32)
-    │   2 × Bottleneck(mid=512, out=2048)          → 2048×(H/32)×(W/32)
-    │                                                ↓ 上采样到 H×W
-    │
-    ├── Concat ───────────────────────────────────────────────────
-    │   拼接 5 个尺度的特征图                    → (64+256+512+1024+2048)×H×W
-    │                                               = 3904×H×W
-    │
-    └── Head ────────────────────────────────────────────────────
-        Conv1x1(3904→num_classes)                 → num_classes×H×W
-        AdaptiveAvgPool2d(1)                      → num_classes×1×1
-        Flatten                                   → num_classes
-        Softmax(dim=1)                            → num_classes
+支持两种残差块：
+    - 标准 Bottleneck（前激活 ResNet-v2）
+    - 深度可分离 Bottleneck（前激活 + Depthwise Separable Conv）
 
-    最小输入尺寸：224×224（确保 layer4 输出 >= 1×1）
-    无最大尺寸限制（GAP 适配任意尺寸）
+支持因子调整：
+    - width_factor (α): 宽度因子，缩放中间通道数
+    - resolution_factor (ρ): 分辨率因子，缩放输入图像尺寸
 
-设计说明：
-    - 多尺度特征融合：提取每个 stage 的输出，上采样到原始尺寸后拼接
-    - 浅层特征（layer1）包含细节信息，深层特征（layer4）包含语义信息
-    - 融合后的特征同时具备细节和语义，适合细粒度分类和异常检测
-    - 最终 1×1 卷积 + GAP 实现全卷积分类，无全连接层
+使用方式：
+    # 标准 ResNet-50
+    model = ResNet50(num_classes=9)
 
-前激活（Pre-activation / ResNet-v2）设计说明：
-    - 标准 ResNet-v1 顺序：Conv → BN → ReLU → ... → Add → ReLU
-    - 前激活 ResNet-v2 顺序：BN → ReLU → Conv → ... → Add（末端无 ReLU）
-    - 优势：残差分支末端没有 ReLU，梯度可以无阻碍地流过跳跃连接，
-      在 100+ 层的深层网络中训练更稳定、收敛更好
+    # 深度可分离版（轻量）
+    model = ResNet50(num_classes=9, use_dw=True, width_factor=0.5, resolution_factor=1.0)
 
 参考论文：
     [1] He et al., "Deep Residual Learning for Image Recognition", CVPR 2016
     [2] He et al., "Identity Mappings in Deep Residual Networks", ECCV 2016 (ResNet-v2)
+    [3] Howard et al., "MobileNets: Efficient CNN for Mobile Vision Applications", 2017
 """
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from addBlock import ResidualBottleneckBlock
+from addBlock import ResidualBottleneckBlock, DWBottleneckBlock
 
 
 class ResNet50(nn.Module):
@@ -72,12 +36,23 @@ class ResNet50(nn.Module):
     Args:
         num_classes (int): 分类类别数，默认 1000（ImageNet）
         in_channels (int): 输入图像通道数，默认 3（RGB）
+        use_dw (bool): 是否使用深度可分离卷积残差块，默认 False
+        width_factor (float): 宽度因子 α，缩放中间通道数，默认 1.0
+        resolution_factor (float): 分辨率因子 ρ，缩放空间下采样步长，默认 1.0
 
-    最小输入尺寸：224×224（确保 layer4 输出 >= 1×1）
+    最小输入尺寸：224×224（ρ < 1.0 时，模型内部会缩放到更小尺寸）
     """
 
-    def __init__(self, num_classes=1000, in_channels=3):
+    def __init__(self, num_classes=1000, in_channels=3, use_dw=False,
+                 width_factor=1.0, resolution_factor=1.0):
         super().__init__()
+
+        self.use_dw = use_dw
+        self.width_factor = width_factor
+        self.resolution_factor = resolution_factor
+
+        # 选择残差块类型
+        Block = DWBottleneckBlock if use_dw else ResidualBottleneckBlock
 
         # 各阶段 Bottleneck 中间通道数（窄通道，即 1×1 降维后的通道数）
         #   Stage 1: mid=64  → out=64×4=256
@@ -108,14 +83,27 @@ class ResNet50(nn.Module):
         #   layer2: 256→512,  stride=2, 空间缩小 56→28
         #   layer3: 512→1024, stride=2, 空间缩小 28→14
         #   layer4: 1024→2048,stride=2, 空间缩小 14→7
-        self.layer1 = self._make_layer(64,   mid_channels[0], num_blocks[0], stride=1)
-        self.layer2 = self._make_layer(256,  mid_channels[1], num_blocks[1], stride=2)
-        self.layer3 = self._make_layer(512,  mid_channels[2], num_blocks[2], stride=2)
-        self.layer4 = self._make_layer(1024, mid_channels[3], num_blocks[3], stride=2)
+        #
+        # DW 模式下，各阶段实际输出通道受 width_factor 缩放，
+        # 因此每个 layer 的 in_channels 必须等于前一个 layer 的实际输出通道数
+        if use_dw:
+            actual_out = [max(1, int(c * width_factor)) for c in out_channels]
+        else:
+            actual_out = out_channels
+
+        self.layer1 = self._make_layer(Block, 64,             mid_channels[0], num_blocks[0], stride=1)
+        self.layer2 = self._make_layer(Block, actual_out[0],  mid_channels[1], num_blocks[1], stride=2)
+        self.layer3 = self._make_layer(Block, actual_out[1],  mid_channels[2], num_blocks[2], stride=2)
+        self.layer4 = self._make_layer(Block, actual_out[2],  mid_channels[3], num_blocks[3], stride=2)
 
         # ======================== Head（分类头）========================
-        # 拼接后的通道数：64 + 256 + 512 + 1024 + 2048 = 3904
-        concat_channels = 64 + sum(out_channels)
+        # 拼接后的通道数（DW 模式下通道受 width_factor 缩放）
+        if use_dw:
+            # stem(64) + 各阶段实际输出通道
+            actual_out_channels = [max(1, int(c * width_factor)) for c in out_channels]
+            concat_channels = 64 + sum(actual_out_channels)
+        else:
+            concat_channels = 64 + sum(out_channels)
 
         # 1×1 卷积：将拼接后的特征映射到类别数
         # 每个通道即为该类别的类激活图（CAM），可用于可视化
@@ -127,62 +115,68 @@ class ResNet50(nn.Module):
         self.flatten = nn.Flatten()
         self.softmax = nn.Softmax(dim=1)
 
-    def _make_layer(self, in_channels, mid_channels, num_blocks, stride):
+    def _make_layer(self, Block, in_channels, mid_channels, num_blocks, stride):
         """
         构建一个残差阶段（Stage）
 
         Args:
+            Block          (class): 残差块类（ResidualBottleneckBlock 或 DWBottleneckBlock）
             in_channels  (int): 该阶段第一个块的输入通道数
             mid_channels (int): Bottleneck 中间通道数（瓶颈窄通道）
             num_blocks   (int): 该阶段包含的 Bottleneck 块数
             stride       (int): 第一个块的步长（>1 时空间尺寸减半）
 
         Returns:
-            nn.Sequential: 由 num_blocks 个 Bottleneck 堆叠组成的阶段
-
-        数据流示意（以 layer2 为例，in=256, mid=128, out=512, stride=2）：
-            输入: (B, 256, 56, 56)
-            │
-            ├─ Block 0（stride=2, 带 downsample）── 主分支和 shortcut 都做空间减半
-            │   主分支: BN→ReLU→Conv1x1(256→128)→BN→ReLU→Conv3x3(128→128, s=2)→BN→ReLU→Conv1x1(128→512)
-            │   shortcut: BN→ReLU→Conv1x1(256→512, s=2)
-            │   输出: (B, 512, 28, 28)
-            │
-            ├─ Block 1（stride=1, 无 downsample）
-            │   输出: (B, 512, 28, 28)
-            │
-            └─ Block 2（stride=1, 无 downsample）
-                输出: (B, 512, 28, 28)
+            nn.Sequential: 由 num_blocks 个 Block 堆叠组成的阶段
         """
-        out_channels = mid_channels * 4  # expansion=4，Bottleneck 输出通道 = 中间通道 × 4
+        # 扩展后通道数
+        out_channels = mid_channels * 4  # expansion=4
+
+        # DW 模式下，实际输出通道受 width_factor 缩放
+        if Block is DWBottleneckBlock:
+            actual_out = max(1, int(out_channels * self.width_factor))
+        else:
+            actual_out = out_channels
 
         # ------ 下采样分支（shortcut 路径）------
-        # 当 stride≠1（空间尺寸变化）或 in≠out（通道数不匹配）时需要下采样
-        # 前激活风格：BN → ReLU → Conv1x1（而不是 Conv1x1 → BN）
+        # downsample 输出通道必须和块的实际输出通道一致
         downsample = None
-        if stride != 1 or in_channels != out_channels:
+        if stride != 1 or in_channels != actual_out:
             downsample = nn.Sequential(
-                nn.BatchNorm2d(in_channels),     # 先对输入做归一化
-                nn.ReLU(inplace=True),           # 激活
-                nn.Conv2d(in_channels, out_channels, kernel_size=1,
-                          stride=stride, bias=False),  # 1×1 卷积调整通道和尺寸
+                nn.BatchNorm2d(in_channels),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(in_channels, actual_out, kernel_size=1,
+                          stride=stride, bias=False),
             )
 
-        # ------ 堆叠 Bottleneck 块 ------
+        # ------ 堆叠残差块 ------
         layers = []
 
-        # 第一个块：可能需要下采样（stride>1 或通道变化）
-        layers.append(ResidualBottleneckBlock(
-            in_channels, mid_channels, out_channels,
-            stride=stride, downsample=downsample, preactivated=True,
-        ))
-
-        # 后续块：通道数不变，stride=1，无需下采样
-        for _ in range(1, num_blocks):
-            layers.append(ResidualBottleneckBlock(
-                out_channels, mid_channels, out_channels,
-                stride=1, downsample=None, preactivated=True,
+        # 第一个块：可能需要下采样
+        if Block is DWBottleneckBlock:
+            layers.append(Block(
+                in_channels, mid_channels, out_channels,
+                stride=stride, downsample=downsample,
+                width_factor=self.width_factor,
             ))
+            # 后续块：输入通道 = actual_out
+            for _ in range(1, num_blocks):
+                layers.append(Block(
+                    actual_out, mid_channels, out_channels,
+                    stride=1, downsample=None,
+                    width_factor=self.width_factor,
+                ))
+        else:
+            # ResidualBottleneckBlock（标准模式）
+            layers.append(Block(
+                in_channels, mid_channels, out_channels,
+                stride=stride, downsample=downsample, preactivated=True,
+            ))
+            for _ in range(1, num_blocks):
+                layers.append(Block(
+                    out_channels, mid_channels, out_channels,
+                    stride=1, downsample=None, preactivated=True,
+                ))
 
         return nn.Sequential(*layers)
 
@@ -197,7 +191,7 @@ class ResNet50(nn.Module):
         Returns:
             Tensor: 各类别概率分布，形状 (B, num_classes)
 
-        数据流（以输入 224×224 为例）：
+        数据流（以输入 224×224，ρ=1.0 为例）：
             (B, 3, H, W)  — H, W 为任意尺寸，需 >= 224
               → stem   → (B, 64, H/4, W/4)    → 上采样 → (B, 64, H, W)
               → layer1 → (B, 256, H/4, W/4)   → 上采样 → (B, 256, H, W)
@@ -206,18 +200,29 @@ class ResNet50(nn.Module):
               → layer4 → (B, 2048, H/32, W/32) → 上采样 → (B, 2048, H, W)
               → concat → (B, 3904, H, W)
               → head   → (B, num_classes)  概率分布
+
+        分辨率因子 ρ 的作用（以 ρ=0.5 为例）：
+            输入 224×224 → 缩放到 112×112 → 网络处理 → 特征图 112×112 → CAM 112×112
+            减少空间维度的计算量和显存占用
         """
-        # 记录输入尺寸，用于上采样目标
-        input_size = x.shape[2:]  # (H, W)
+        # 分辨率因子：缩放输入图像尺寸，后续特征图和 CAM 均为缩放后的分辨率
+        if self.resolution_factor != 1.0:
+            h, w = x.shape[2:]
+            scaled_h = max(32, int(h * self.resolution_factor))
+            scaled_w = max(32, int(w * self.resolution_factor))
+            x = F.interpolate(x, size=(scaled_h, scaled_w), mode='bilinear', align_corners=False)
 
-        x = self.stem(x)       # 主干：7×7 Conv + MaxPool，输出 64×(H/4)×(W/4)
+        # 记录处理尺寸，用于上采样目标
+        input_size = x.shape[2:]  # (H', W')
 
-        # 提取每个阶段的输出
+        x = self.stem(x)       # 主干：7×7 Conv + MaxPool，输出 64×(H'/4)×(W'/4)
+
+        # 提取每个阶段的输出（通道数受 width_factor 影响）
         feat0 = x                  # (B, 64, H/4, W/4)    stem 输出
-        feat1 = self.layer1(x)     # (B, 256, H/4, W/4)
-        feat2 = self.layer2(feat1) # (B, 512, H/8, W/8)
-        feat3 = self.layer3(feat2) # (B, 1024, H/16, W/16)
-        feat4 = self.layer4(feat3) # (B, 2048, H/32, W/32)
+        feat1 = self.layer1(x)     # (B, C1, H/4, W/4)
+        feat2 = self.layer2(feat1) # (B, C2, H/8, W/8)
+        feat3 = self.layer3(feat2) # (B, C3, H/16, W/16)
+        feat4 = self.layer4(feat3) # (B, C4, H/32, W/32)
 
         # 上采样到原始输入尺寸（动态获取，无需固定 target_size）
         feat0 = F.interpolate(feat0, size=input_size, mode='bilinear', align_corners=False)  # (B, 64, H, W)
@@ -239,35 +244,47 @@ class ResNet50(nn.Module):
 
 # ======================== 测试代码 ========================
 if __name__ == '__main__':
-    # 创建 ResNet-50，10 分类任务
-    model = ResNet50(num_classes=10)
+    print("=" * 60)
+    print("测试 1：标准 ResNet-50（Bottleneck）")
+    print("=" * 60)
+    model = ResNet50(num_classes=10, use_dw=False)
+    print(f"参数量: {sum(p.numel() for p in model.parameters()):,}")
 
-    # 测试 1：标准 224×224 输入
-    print("=" * 50)
-    print("测试 1：标准 224×224 输入")
     x = torch.randn(1, 3, 224, 224)
     out, cam = model(x)
-    print(f"输入形状: {x.shape}")           # (1, 3, 224, 224)
-    print(f"输出形状: {out.shape}")         # (1, 10)
-    print(f"CAM 形状: {cam.shape}")         # (1, 10, 224, 224)
-    print(f"概率和: {out.sum(dim=1).item():.4f}")  # ≈ 1.0
+    print(f"输入: {x.shape}  输出: {out.shape}  CAM: {cam.shape}")
+    print(f"概率和: {out.sum(dim=1).item():.4f}")
 
-    # 测试 2：更大的输入尺寸（如 320×320）
-    print("\n" + "=" * 50)
-    print("测试 2：更大输入 320×320")
-    x = torch.randn(1, 3, 320, 320)
-    out, cam = model(x)
-    print(f"输入形状: {x.shape}")           # (1, 3, 320, 320)
-    print(f"输出形状: {out.shape}")         # (1, 10)
-    print(f"CAM 形状: {cam.shape}")         # (1, 10, 320, 320)
-    print(f"概率和: {out.sum(dim=1).item():.4f}")  # ≈ 1.0
+    print("\n" + "=" * 60)
+    print("测试 2：深度可分离 ResNet-50（DWBottleneck, α=1.0, ρ=1.0）")
+    print("=" * 60)
+    model_dw = ResNet50(num_classes=10, use_dw=True, width_factor=1.0, resolution_factor=1.0)
+    print(f"参数量: {sum(p.numel() for p in model_dw.parameters()):,}")
 
-    # 测试 3：非正方形输入（如 256×384）
-    print("\n" + "=" * 50)
-    print("测试 3：非正方形输入 256×384")
-    x = torch.randn(1, 3, 256, 384)
-    out, cam = model(x)
-    print(f"输入形状: {x.shape}")           # (1, 3, 256, 384)
-    print(f"输出形状: {out.shape}")         # (1, 10)
-    print(f"CAM 形状: {cam.shape}")         # (1, 10, 256, 384)
-    print(f"概率和: {out.sum(dim=1).item():.4f}")  # ≈ 1.0
+    x = torch.randn(1, 3, 224, 224)
+    out, cam = model_dw(x)
+    print(f"输入: {x.shape}  输出: {out.shape}  CAM: {cam.shape}")
+    print(f"概率和: {out.sum(dim=1).item():.4f}")
+
+    print("\n" + "=" * 60)
+    print("测试 3：深度可分离 + 宽度因子 α=0.5（轻量版）")
+    print("=" * 60)
+    model_dw_half = ResNet50(num_classes=10, use_dw=True, width_factor=0.5, resolution_factor=1.0)
+    print(f"参数量: {sum(p.numel() for p in model_dw_half.parameters()):,}")
+
+    x = torch.randn(1, 3, 224, 224)
+    out, cam = model_dw_half(x)
+    print(f"输入: {x.shape}  输出: {out.shape}  CAM: {cam.shape}")
+    print(f"概率和: {out.sum(dim=1).item():.4f}")
+
+    print("\n" + "=" * 60)
+    print("测试 4：深度可分离 + 分辨率因子 ρ=0.5（加速版）")
+    print("=" * 60)
+    model_dw_lowres = ResNet50(num_classes=10, use_dw=True, width_factor=1.0, resolution_factor=0.5)
+    print(f"参数量: {sum(p.numel() for p in model_dw_lowres.parameters()):,}")
+
+    # ρ=0.5 会将输入缩放到 112×112，减少计算量
+    x = torch.randn(1, 3, 224, 224)
+    out, cam = model_dw_lowres(x)
+    print(f"输入: {x.shape}  输出: {out.shape}  CAM: {cam.shape}")
+    print(f"概率和: {out.sum(dim=1).item():.4f}")
