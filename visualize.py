@@ -201,7 +201,7 @@ def plot_confusion_matrix(model, dataset, device, save_path):
 
 def plot_cam_samples(model, dataset, device, save_path):
     """绘制最终测试的 CAM 热力图（每个类别一张）"""
-    from train import save_cam_heatmap
+    from train import save_cam_heatmap, save_cam_all_classes
 
     loader = DataLoader(dataset, batch_size=16, shuffle=False, num_workers=0)
     class_names = dataset.class_names
@@ -215,25 +215,30 @@ def plot_cam_samples(model, dataset, device, save_path):
         for images, labels in loader:
             images = images.to(device)
             outputs, cam = model(images)
+            _, predicted = outputs.max(1)
 
             for i in range(images.size(0)):
                 cls_idx = labels[i].item()
                 if cls_idx not in cam_samples:
-                    cam_samples[cls_idx] = (images[i].cpu(), cam[i].cpu())
+                    pred_idx = predicted[i].item()
+                    cam_samples[cls_idx] = (images[i].cpu(), cam[i].cpu(), pred_idx)
 
             if len(cam_samples) == num_classes:
                 break
 
-    # 每个类别生成一张热力图
+    # 每个类别生成热力图
     save_dir = Path(save_path)
     save_dir.mkdir(parents=True, exist_ok=True)
 
-    for cls_idx, (img_tensor, cam_tensor) in cam_samples.items():
+    for cls_idx, (img_tensor, cam_tensor, pred_idx) in cam_samples.items():
         cls_name = class_names[cls_idx]
-        # 用真实类别的激活图
         save_cam_heatmap(
-            img_tensor, cam_tensor, cls_idx, class_names,
+            img_tensor, cam_tensor, cls_idx, pred_idx, class_names,
             save_path=save_dir / f'{cls_name}.png'
+        )
+        save_cam_all_classes(
+            img_tensor, cam_tensor, cls_idx, pred_idx, class_names,
+            save_path=save_dir / f'{cls_name}_all.png'
         )
 
     # 拼接所有类别为一张大图

@@ -63,20 +63,21 @@ class Logger:
 
 # ======================== 热力图可视化 ========================
 
-def save_cam_heatmap(image_tensor, cam_tensor, class_idx, class_names, save_path):
+def save_cam_heatmap(image_tensor, cam_tensor, true_idx, pred_idx, class_names, save_path):
     """
     将 CAM 类激活图叠加到原图上，保存热力图
 
     Args:
         image_tensor: 原图 (C, H, W) float tensor，未归一化，RGB
         cam_tensor: CAM (num_classes, H, W) float tensor
-        class_idx: 预测类别索引
+        true_idx: 真实类别索引
+        pred_idx: 预测类别索引
         class_names: 类别名列表
         save_path: 保存路径
     """
     # 转 numpy
     img = image_tensor.permute(1, 2, 0).cpu().numpy().astype(np.uint8)  # (H, W, 3) RGB
-    cam = cam_tensor[class_idx].cpu().numpy()  # (H, W)
+    cam = cam_tensor[true_idx].cpu().numpy()  # (H, W)
 
     # 归一化 CAM 到 [0, 255]
     cam = (cam - cam.min()) / (cam.max() - cam.min() + 1e-8)
@@ -100,12 +101,68 @@ def save_cam_heatmap(image_tensor, cam_tensor, class_idx, class_names, save_path
     canvas[:, w:2*w] = heatmap
     canvas[:, 2*w:] = overlay
 
-    # 添加文字标注
-    label = f"Pred: {class_names[class_idx]}"
+    # 添加文字标注：真实类别 + 预测类别
+    true_name = class_names[true_idx]
+    pred_name = class_names[pred_idx]
+    match = "OK" if true_idx == pred_idx else "WRONG"
+    label = f"True: {true_name} | Pred: {pred_name} [{match}]"
     cv2.putText(canvas, label, (10, 30), cv2.FONT_HERSHEY_SIMPLEX,
-                0.8, (255, 255, 255), 2)
+                0.7, (255, 255, 255), 2)
 
     # 保存（BGR）
+    canvas_bgr = cv2.cvtColor(canvas, cv2.COLOR_RGB2BGR)
+    cv2.imwrite(str(save_path), canvas_bgr)
+
+
+def save_cam_all_classes(image_tensor, cam_tensor, true_idx, pred_idx, class_names, save_path):
+    """
+    为每个类别生成热力图并拼接成一张大图
+
+    Args:
+        image_tensor: 原图 (C, H, W) float tensor
+        cam_tensor: CAM (num_classes, H, W) float tensor
+        true_idx: 真实类别索引
+        pred_idx: 预测类别索引
+        class_names: 类别名列表
+        save_path: 保存路径
+    """
+    num_classes = len(class_names)
+    img = image_tensor.permute(1, 2, 0).cpu().numpy().astype(np.uint8)
+    h, w = img.shape[:2]
+
+    # 每行放原图+各类别热力图，按列排
+    # 第一列：原图，后续列：各类别 CAM 叠加
+    cols = num_classes + 1
+    canvas = np.zeros((h + 40, w * cols, 3), dtype=np.uint8)
+
+    # 原图
+    canvas[40:40+h, :w] = img
+    cv2.putText(canvas, f"True:{class_names[true_idx]}", (5, 28),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+    # 各类别热力图
+    for cls_idx in range(num_classes):
+        cam = cam_tensor[cls_idx].cpu().numpy()
+        cam = (cam - cam.min()) / (cam.max() - cam.min() + 1e-8)
+        cam = (cam * 255).astype(np.uint8)
+
+        heatmap = cv2.applyColorMap(cam, cv2.COLORMAP_JET)
+        heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
+        if heatmap.shape[:2] != (h, w):
+            heatmap = cv2.resize(heatmap, (w, h), interpolation=cv2.INTER_LINEAR)
+
+        overlay = cv2.addWeighted(img, 0.5, heatmap, 0.5, 0)
+
+        x_offset = (cls_idx + 1) * w
+        canvas[40:40+h, x_offset:x_offset+w] = overlay
+
+        # 标注类别名，预测类别标红
+        color = (0, 200, 0) if cls_idx == true_idx else (200, 200, 200)
+        if cls_idx == pred_idx:
+            color = (200, 50, 50)
+        cv2.putText(canvas, class_names[cls_idx], (x_offset + 5, 28),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+
     canvas_bgr = cv2.cvtColor(canvas, cv2.COLOR_RGB2BGR)
     cv2.imwrite(str(save_path), canvas_bgr)
 
@@ -400,7 +457,8 @@ def train(
                 for i in range(images.size(0)):
                     cls_idx = labels[i].item()
                     if cls_idx not in cam_samples:
-                        cam_samples[cls_idx] = (images[i].cpu(), cam[i].cpu())
+                        pred_idx = predicted[i].item()
+                        cam_samples[cls_idx] = (images[i].cpu(), cam[i].cpu(), pred_idx)
 
         val_loss /= val_total
         val_acc = val_correct / val_total
@@ -441,12 +499,17 @@ def train(
         epoch_cam_dir = cam_path / f'epoch_{epoch+1:03d}'
         epoch_cam_dir.mkdir(parents=True, exist_ok=True)
 
-        for cls_idx, (img_tensor, cam_tensor) in cam_samples.items():
+        for cls_idx, (img_tensor, cam_tensor, pred_idx) in cam_samples.items():
             cls_name = dataset.class_names[cls_idx]
-            # 用真实类别的激活图，看模型对该类"关注"了哪里
+            # 单类别热力图（真实类别激活）
             save_cam_heatmap(
-                img_tensor, cam_tensor, cls_idx, dataset.class_names,
+                img_tensor, cam_tensor, cls_idx, pred_idx, dataset.class_names,
                 save_path=epoch_cam_dir / f'{cls_name}.png'
+            )
+            # 所有类别热力图拼接
+            save_cam_all_classes(
+                img_tensor, cam_tensor, cls_idx, pred_idx, dataset.class_names,
+                save_path=epoch_cam_dir / f'{cls_name}_all.png'
             )
 
         logger.log(f"  CAM 热力图已保存至: {epoch_cam_dir}")
