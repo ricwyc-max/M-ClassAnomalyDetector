@@ -208,13 +208,14 @@ class AnomalyDataset(Dataset):
 
 def train(
     data_dir='./data/augmented',
-    num_epochs=50,
+    num_epochs=100,
     batch_size=16,
     lr=1e-3,
     img_size=224,
     use_dw=False,
     width_factor=1.0,
     resolution_factor=1.0,
+    patience=15,
     device='cuda',
     save_path='best_model.pth',
     cam_dir='./cam_outputs',
@@ -291,6 +292,7 @@ def train(
 
     # ---------- 训练循环 ----------
     best_val_acc = 0.0
+    patience_counter = 0
 
     # ---------- CSV 日志 ----------
     csv_path = Path(log_dir) / f'train_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
@@ -442,6 +444,14 @@ def train(
                 'img_size': img_size,
             }, save_path)
             logger.log(f"  -> 保存最佳模型 (Val Acc: {val_acc:.4f})")
+            patience_counter = 0
+        else:
+            patience_counter += 1
+            logger.log(f"  -> 验证准确率未提升 ({patience_counter}/{patience})")
+
+        if patience_counter >= patience:
+            logger.log(f"\n早停触发！连续 {patience} 轮验证准确率未提升，停止训练。")
+            break
 
     logger.log(f"\n{'='*70}")
     logger.log(f"训练完成！最佳验证准确率: {best_val_acc:.4f}")
@@ -458,7 +468,7 @@ def train(
 if __name__ == '__main__':
     train(
         data_dir='./data/augmented',
-        num_epochs=50,
+        num_epochs=100,
         batch_size=8,
         lr=1e-3,
         img_size=224,
