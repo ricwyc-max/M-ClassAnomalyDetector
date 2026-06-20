@@ -455,11 +455,11 @@ if __name__ == '__main__':
     train(
         data_dir='./data/augmented',
         num_epochs=50,
-        batch_size=32,
+        batch_size=16,
         lr=1e-3,
         img_size=224,
-        use_dw=False,              # True 用深度可分离，False 用标准 Bottleneck
-        width_factor=1.0,          # 宽度因子 α（0.5=轻量，1.0=标准，2.0=更宽）
+        use_dw=True,              # True 用深度可分离，False 用标准 Bottleneck
+        width_factor=0.3,          # 宽度因子 α（0.5=轻量，1.0=标准，2.0=更宽）
         resolution_factor=1.0,     # 分辨率因子 ρ（0.5=低分辨率加速，1.0=标准）
         device='cuda',
         save_path='best_model.pth',
