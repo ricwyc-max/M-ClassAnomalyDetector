@@ -1,0 +1,2 @@
+# M-ClassAnomalyDetector
+基于图像级别标签训练的多尺度特征提取的GAP激活的异常检测
