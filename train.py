@@ -31,6 +31,9 @@ import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from pathlib import Path
 from datetime import datetime
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 from model import ResNet50
 
 
@@ -271,6 +274,26 @@ def train(
                             num_workers=0, pin_memory=True)
 
     logger.log(f"训练集: {len(train_dataset)} 张, 验证集: {len(val_dataset)} 张")
+
+    # ---------- 样本分布图 ----------
+    class_counts = [0] * num_classes
+    for _, label in dataset:
+        class_counts[label] += 1
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    bars = ax.bar(dataset.class_names, class_counts, color='steelblue')
+    for bar, count in zip(bars, class_counts):
+        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 20,
+                str(count), ha='center', va='bottom', fontsize=9)
+    ax.set_xlabel('Class')
+    ax.set_ylabel('Count')
+    ax.set_title('Sample Distribution')
+    ax.tick_params(axis='x', rotation=45)
+    fig.tight_layout()
+    dist_path = Path(log_dir) / 'sample_distribution.png'
+    fig.savefig(str(dist_path), dpi=150)
+    plt.close(fig)
+    logger.log(f"样本分布图: {dist_path}")
 
     # ---------- 模型 ----------
     model = ResNet50(num_classes=num_classes, in_channels=3,
