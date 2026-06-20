@@ -308,14 +308,21 @@ def plot_all(csv_path, model_path=None, data_dir=None, output_dir='./visualizati
         class_names = checkpoint['class_names']
         num_classes = len(class_names)
 
-        model = ResNet50(num_classes=num_classes, in_channels=3)
+        # 从 checkpoint 恢复模型配置
+        use_dw = checkpoint.get('use_dw', False)
+        width_factor = checkpoint.get('width_factor', 1.0)
+        resolution_factor = checkpoint.get('resolution_factor', 1.0)
+        img_size = checkpoint.get('img_size', 224)
+
+        model = ResNet50(num_classes=num_classes, in_channels=3,
+                         use_dw=use_dw, width_factor=width_factor,
+                         resolution_factor=resolution_factor)
         model.load_state_dict(checkpoint['model_state_dict'])
 
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         model = model.to(device)
 
         # 加载数据集
-        img_size = 224
         dataset = AnomalyDataset(data_dir, img_size=img_size)
 
         # 5. 混淆矩阵

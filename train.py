@@ -436,6 +436,10 @@ def train(
                 'val_acc': val_acc,
                 'class_names': dataset.class_names,
                 'class_to_idx': dataset.class_to_idx,
+                'use_dw': use_dw,
+                'width_factor': width_factor,
+                'resolution_factor': resolution_factor,
+                'img_size': img_size,
             }, save_path)
             logger.log(f"  -> 保存最佳模型 (Val Acc: {val_acc:.4f})")
 
@@ -455,11 +459,11 @@ if __name__ == '__main__':
     train(
         data_dir='./data/augmented',
         num_epochs=50,
-        batch_size=16,
+        batch_size=8,
         lr=1e-3,
         img_size=224,
         use_dw=True,              # True 用深度可分离，False 用标准 Bottleneck
-        width_factor=0.3,          # 宽度因子 α（0.5=轻量，1.0=标准，2.0=更宽）
+        width_factor=0.5,          # 宽度因子 α（0.5=轻量，1.0=标准，2.0=更宽）
         resolution_factor=1.0,     # 分辨率因子 ρ（0.5=低分辨率加速，1.0=标准）
         device='cuda',
         save_path='best_model.pth',
