@@ -22,6 +22,7 @@
 """
 
 import os
+import csv
 import cv2
 import numpy as np
 import torch
@@ -277,6 +278,15 @@ def train(
     # ---------- 训练循环 ----------
     best_val_acc = 0.0
 
+    # ---------- CSV 日志 ----------
+    csv_path = Path(log_dir) / f'train_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
+    csv_header = ['epoch', 'train_loss', 'train_acc', 'val_loss', 'val_acc', 'lr',
+                  'epoch_time'] + [f'acc_{name}' for name in dataset.class_names]
+    csv_file = open(csv_path, 'w', newline='', encoding='utf-8')
+    csv_writer = csv.writer(csv_file)
+    csv_writer.writerow(csv_header)
+    logger.log(f"CSV 日志: {csv_path}")
+
     for epoch in range(num_epochs):
         epoch_start = datetime.now()
 
@@ -320,6 +330,10 @@ def train(
         val_correct = 0
         val_total = 0
 
+        # 每类统计：正确数、总数
+        class_correct = [0] * num_classes
+        class_total = [0] * num_classes
+
         # 用于热力图的样本（每个类别取一张）
         cam_samples = {}  # {class_idx: (image_tensor, cam_tensor)}
 
@@ -336,6 +350,13 @@ def train(
                 val_total += labels.size(0)
                 val_correct += predicted.eq(labels).sum().item()
 
+                # 每类统计
+                for i in range(images.size(0)):
+                    cls_idx = labels[i].item()
+                    class_total[cls_idx] += 1
+                    if predicted[i].item() == cls_idx:
+                        class_correct[cls_idx] += 1
+
                 # 记录每个类别的第一张样本用于 CAM
                 for i in range(images.size(0)):
                     cls_idx = labels[i].item()
@@ -344,6 +365,14 @@ def train(
 
         val_loss /= val_total
         val_acc = val_correct / val_total
+
+        # 每类准确率
+        class_accs = []
+        for i in range(num_classes):
+            if class_total[i] > 0:
+                class_accs.append(class_correct[i] / class_total[i])
+            else:
+                class_accs.append(0.0)
 
         # 更新学习率
         scheduler.step()
@@ -355,6 +384,19 @@ def train(
         logger.log(f"  Train  Loss: {train_loss:.4f}  Acc: {train_acc:.4f}")
         logger.log(f"  Val    Loss: {val_loss:.4f}  Acc: {val_acc:.4f}")
         logger.log(f"  LR: {scheduler.get_last_lr()[0]:.6f}")
+
+        # 打印每类准确率
+        logger.log(f"  各类别准确率:")
+        for i, name in enumerate(dataset.class_names):
+            logger.log(f"    {name}: {class_accs[i]:.4f} ({class_correct[i]}/{class_total[i]})")
+
+        # 写入 CSV
+        row = [epoch + 1, f'{train_loss:.4f}', f'{train_acc:.4f}',
+               f'{val_loss:.4f}', f'{val_acc:.4f}',
+               f'{scheduler.get_last_lr()[0]:.6f}', f'{epoch_time:.1f}']
+        row += [f'{acc:.4f}' for acc in class_accs]
+        csv_writer.writerow(row)
+        csv_file.flush()
 
         # ---- 保存热力图 ----
         epoch_cam_dir = cam_path / f'epoch_{epoch+1:03d}'
@@ -387,7 +429,9 @@ def train(
     logger.log(f"训练完成！最佳验证准确率: {best_val_acc:.4f}")
     logger.log(f"模型保存至: {save_path}")
     logger.log(f"日志保存至: {logger.log_file}")
+    logger.log(f"CSV 日志: {csv_path}")
 
+    csv_file.close()
     logger.close()
     return model, dataset
 
