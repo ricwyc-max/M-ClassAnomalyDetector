@@ -122,7 +122,7 @@ python train.py
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
 | `data_dir` | `./data/augmented` | 数据目录 |
-| `num_epochs` | 50 | 训练轮数 |
+| `num_epochs` | 100 | 训练轮数 |
 | `batch_size` | 8 | 批大小 |
 | `lr` | 1e-3 | 学习率 |
 | `img_size` | 224 | 输入尺寸 |
