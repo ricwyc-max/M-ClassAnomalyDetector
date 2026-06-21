@@ -39,6 +39,7 @@ M-ClassAnomalyDetector/
 
 ### ResNet-50 多尺度特征融合
 
+![网络架构图](networkArchitecture.png)
 ```
 Input (B, 3, H, W)
   │
@@ -51,7 +52,7 @@ Input (B, 3, H, W)
   ├── Upsample + Concat             → (B, 3904, H, W)
   ├── Conv1×1                        → (B, num_classes, H, W)  ← CAM
   ├── GAP                            → (B, num_classes, 1, 1)
-  └── Softmax                        → (B, num_classes)        ← 概率分布
+  └── Output                         → (B, num_classes)
 ```
 
 ### 支持的残差块
