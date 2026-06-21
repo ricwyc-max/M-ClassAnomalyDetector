@@ -4,3 +4,5 @@
 /cam_outputs
 /data/mvtec_anomaly_detection
 /data/data_root
+*.pth
+/data/augmented
