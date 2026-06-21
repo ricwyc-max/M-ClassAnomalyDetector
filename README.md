@@ -158,6 +158,26 @@ python visualize.py
 
 用于异常检测时，热力图高亮区域即为模型判断的异常位置。
 
+## 注意事项
+
+**模型输出为 raw logits，不要在模型末尾加 Softmax**
+
+`CrossEntropyLoss` 内部已包含 `log_softmax`，如果模型输出再加 `nn.Softmax`，会导致双重 softmax，梯度被压缩到极小值，模型无法学习（表现为 loss 不降、所有样本预测为同一类别）。
+
+```python
+# 错误：模型输出 softmax 概率 → CrossEntropyLoss 再做 log_softmax → 双重压缩
+x = self.softmax(x)
+return x
+
+# 正确：直接输出 raw logits，由 CrossEntropyLoss 处理
+return x
+```
+
+推理时如需概率分布，可手动加 softmax：
+```python
+probs = torch.softmax(logits, dim=1)
+```
+
 ## 参考论文
 
 1. He et al., "Deep Residual Learning for Image Recognition", CVPR 2016
