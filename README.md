@@ -189,3 +189,4 @@ probs = torch.softmax(logits, dim=1)
 2. He et al., "Identity Mappings in Deep Residual Networks", ECCV 2016
 3. Howard et al., "MobileNets: Efficient CNN for Mobile Vision Applications", 2017
 4. ZHOU B, KHOSLA A, LAPEDRIZA A, 等. Learning Deep Features for Discriminative Localization[EB/OL]. arXiv, 2015[2026-01-14]. http://arxiv.org/abs/1512.04150.
+5. LIN T Y, DOLLÁR P, GIRSHICK R, 等. Feature Pyramid Networks for Object Detection[EB/OL]. arXiv, 2017[2025-09-02]. http://arxiv.org/abs/1612.03144.
