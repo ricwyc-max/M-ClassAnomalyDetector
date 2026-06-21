@@ -183,4 +183,4 @@ probs = torch.softmax(logits, dim=1)
 1. He et al., "Deep Residual Learning for Image Recognition", CVPR 2016
 2. He et al., "Identity Mappings in Deep Residual Networks", ECCV 2016
 3. Howard et al., "MobileNets: Efficient CNN for Mobile Vision Applications", 2017
-4. Zhou et al., "Learning Deep Features for Discriminative Localization", CVPR 2016 (CAM)
+4. ZHOU B, KHOSLA A, LAPEDRIZA A, 等. Learning Deep Features for Discriminative Localization[EB/OL]. arXiv, 2015[2026-01-14]. http://arxiv.org/abs/1512.04150.
