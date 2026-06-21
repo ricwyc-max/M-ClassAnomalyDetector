@@ -110,10 +110,10 @@ class ResNet50(nn.Module):
         self.cls_conv = nn.Conv2d(concat_channels, num_classes, kernel_size=1, bias=False)
 
         # GAP：压缩空间信息
-        # Softmax：输出概率分布
+        # 注意：不在此处加 Softmax，CrossEntropyLoss 内部已包含 log_softmax
+        # 训练时输出 raw logits，推理时可手动加 softmax 得到概率分布
         self.gap = nn.AdaptiveAvgPool2d(1)
         self.flatten = nn.Flatten()
-        self.softmax = nn.Softmax(dim=1)
 
     def _make_layer(self, Block, in_channels, mid_channels, num_blocks, stride):
         """
@@ -234,11 +234,10 @@ class ResNet50(nn.Module):
         # 在通道维度拼接多尺度特征
         x = torch.cat([feat0, feat1, feat2, feat3, feat4], dim=1)  # (B, 3904, 224, 224)
 
-        # 分类头：1×1 Conv + GAP + Softmax
+        # 分类头：1×1 Conv + GAP（输出 raw logits，不加 softmax）
         cam = self.cls_conv(x)      # (B, num_classes, H, W) 类激活图
         x = self.gap(cam)           # (B, num_classes, 1, 1)
-        x = self.flatten(x)         # (B, num_classes)
-        x = self.softmax(x)         # (B, num_classes) 概率分布
+        x = self.flatten(x)         # (B, num_classes) raw logits
         return x, cam
 
 
@@ -253,7 +252,7 @@ if __name__ == '__main__':
     x = torch.randn(1, 3, 224, 224)
     out, cam = model(x)
     print(f"输入: {x.shape}  输出: {out.shape}  CAM: {cam.shape}")
-    print(f"概率和: {out.sum(dim=1).item():.4f}")
+    print(f"logits 范围: [{out.min().item():.2f}, {out.max().item():.2f}]")
 
     print("\n" + "=" * 60)
     print("测试 2：深度可分离 ResNet-50（DWBottleneck, α=1.0, ρ=1.0）")
@@ -264,7 +263,7 @@ if __name__ == '__main__':
     x = torch.randn(1, 3, 224, 224)
     out, cam = model_dw(x)
     print(f"输入: {x.shape}  输出: {out.shape}  CAM: {cam.shape}")
-    print(f"概率和: {out.sum(dim=1).item():.4f}")
+    print(f"logits 范围: [{out.min().item():.2f}, {out.max().item():.2f}]")
 
     print("\n" + "=" * 60)
     print("测试 3：深度可分离 + 宽度因子 α=0.5（轻量版）")
@@ -275,7 +274,7 @@ if __name__ == '__main__':
     x = torch.randn(1, 3, 224, 224)
     out, cam = model_dw_half(x)
     print(f"输入: {x.shape}  输出: {out.shape}  CAM: {cam.shape}")
-    print(f"概率和: {out.sum(dim=1).item():.4f}")
+    print(f"logits 范围: [{out.min().item():.2f}, {out.max().item():.2f}]")
 
     print("\n" + "=" * 60)
     print("测试 4：深度可分离 + 分辨率因子 ρ=0.5（加速版）")
@@ -287,4 +286,4 @@ if __name__ == '__main__':
     x = torch.randn(1, 3, 224, 224)
     out, cam = model_dw_lowres(x)
     print(f"输入: {x.shape}  输出: {out.shape}  CAM: {cam.shape}")
-    print(f"概率和: {out.sum(dim=1).item():.4f}")
+    print(f"logits 范围: [{out.min().item():.2f}, {out.max().item():.2f}]")
