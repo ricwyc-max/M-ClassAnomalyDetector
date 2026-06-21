@@ -7,6 +7,10 @@
 **输出**：分类结果 + 多层融合的精细热力图（可转化为分割掩码）
 **效果**：不依赖任何像素级标注，却能产出接近全监督的定位精度
 
+## 数据集
+
+使用 [MVTec Anomaly Detection (MVTec AD)](https://www.mvtec.com/company/research/datasets/mvtec-ad) 数据集，包含 15 个工业品类（如瓶盖、电缆、胶囊、螺栓等），每个品类包含正常样本和多种缺陷类型。
+
 ## 项目结构
 
 ```
