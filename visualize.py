@@ -276,6 +276,143 @@ def plot_cam_samples(model, dataset, device, save_path):
         print(f"  拼接总图: {combined_path}")
 
 
+def plot_metrics_summary(csv_path, model_path, data_dir, save_path):
+    """绘制指标汇总图（Precision、Recall、F1、AUC）"""
+    from sklearn.metrics import precision_score, recall_score, f1_score, roc_auc_score
+
+    checkpoint = torch.load(model_path, map_location='cpu')
+    class_names = checkpoint['class_names']
+    num_classes = len(class_names)
+    use_dw = checkpoint.get('use_dw', False)
+    width_factor = checkpoint.get('width_factor', 1.0)
+    resolution_factor = checkpoint.get('resolution_factor', 1.0)
+    img_size = checkpoint.get('img_size', 224)
+
+    model = ResNet50(num_classes=num_classes, in_channels=3,
+                     use_dw=use_dw, width_factor=width_factor,
+                     resolution_factor=resolution_factor)
+    model.load_state_dict(checkpoint['model_state_dict'])
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = model.to(device)
+    model.eval()
+
+    dataset = AnomalyDataset(data_dir, img_size=img_size)
+    loader = DataLoader(dataset, batch_size=16, shuffle=False, num_workers=0)
+
+    all_labels = []
+    all_preds = []
+    all_probs = []
+
+    with torch.no_grad():
+        for images, labels in loader:
+            images = images.to(device)
+            outputs, _ = model(images)
+            probs = torch.softmax(outputs, dim=1)
+            _, preds = outputs.max(1)
+
+            all_labels.extend(labels.numpy())
+            all_preds.extend(preds.cpu().numpy())
+            all_probs.extend(probs.cpu().numpy())
+
+    all_labels = np.array(all_labels)
+    all_preds = np.array(all_preds)
+    all_probs = np.array(all_probs)
+
+    # 计算每类指标
+    precisions = []
+    recalls = []
+    f1s = []
+    aucs = []
+
+    for i, name in enumerate(class_names):
+        p = precision_score(all_labels == i, all_preds == i, zero_division=0)
+        r = recall_score(all_labels == i, all_preds == i, zero_division=0)
+        f = f1_score(all_labels == i, all_preds == i, zero_division=0)
+
+        binary_labels = (all_labels == i).astype(int)
+        try:
+            auc = roc_auc_score(binary_labels, all_probs[:, i])
+        except ValueError:
+            auc = 0.0
+
+        precisions.append(p)
+        recalls.append(r)
+        f1s.append(f)
+        aucs.append(auc)
+
+    # 绘图
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+
+    x = np.arange(len(class_names))
+    width = 0.6
+
+    # Precision
+    ax = axes[0, 0]
+    bars = ax.bar(x, precisions, width, color='steelblue')
+    ax.set_title('Precision per Class', fontsize=13)
+    ax.set_ylabel('Precision', fontsize=11)
+    ax.set_xticks(x)
+    ax.set_xticklabels(class_names, rotation=45, ha='right', fontsize=8)
+    ax.set_ylim(0, 1.1)
+    ax.grid(True, alpha=0.3, axis='y')
+    for bar, v in zip(bars, precisions):
+        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.02,
+                f'{v:.2f}', ha='center', fontsize=7)
+
+    # Recall
+    ax = axes[0, 1]
+    bars = ax.bar(x, recalls, width, color='darkorange')
+    ax.set_title('Recall per Class', fontsize=13)
+    ax.set_ylabel('Recall', fontsize=11)
+    ax.set_xticks(x)
+    ax.set_xticklabels(class_names, rotation=45, ha='right', fontsize=8)
+    ax.set_ylim(0, 1.1)
+    ax.grid(True, alpha=0.3, axis='y')
+    for bar, v in zip(bars, recalls):
+        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.02,
+                f'{v:.2f}', ha='center', fontsize=7)
+
+    # F1-Score
+    ax = axes[1, 0]
+    bars = ax.bar(x, f1s, width, color='green')
+    ax.set_title('F1-Score per Class', fontsize=13)
+    ax.set_ylabel('F1-Score', fontsize=11)
+    ax.set_xticks(x)
+    ax.set_xticklabels(class_names, rotation=45, ha='right', fontsize=8)
+    ax.set_ylim(0, 1.1)
+    ax.grid(True, alpha=0.3, axis='y')
+    for bar, v in zip(bars, f1s):
+        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.02,
+                f'{v:.2f}', ha='center', fontsize=7)
+
+    # AUC
+    ax = axes[1, 1]
+    bars = ax.bar(x, aucs, width, color='crimson')
+    ax.set_title('AUC per Class', fontsize=13)
+    ax.set_ylabel('AUC', fontsize=11)
+    ax.set_xticks(x)
+    ax.set_xticklabels(class_names, rotation=45, ha='right', fontsize=8)
+    ax.set_ylim(0, 1.1)
+    ax.grid(True, alpha=0.3, axis='y')
+    for bar, v in zip(bars, aucs):
+        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.02,
+                f'{v:.2f}', ha='center', fontsize=7)
+
+    # 添加整体指标
+    macro_p = np.mean(precisions)
+    macro_r = np.mean(recalls)
+    macro_f = np.mean(f1s)
+    macro_auc = np.mean(aucs)
+    fig.suptitle(f'Macro Avg — P: {macro_p:.3f}  R: {macro_r:.3f}  F1: {macro_f:.3f}  AUC: {macro_auc:.3f}',
+                 fontsize=12, y=1.02)
+
+    fig.tight_layout()
+    fig.savefig(str(save_path), dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    print(f"  指标汇总: {save_path}")
+
+
 def plot_all(csv_path, model_path=None, data_dir=None, output_dir='./visualizations'):
     """
     一键生成所有可视化图表
@@ -306,7 +443,7 @@ def plot_all(csv_path, model_path=None, data_dir=None, output_dir='./visualizati
     # 4. 学习率曲线
     plot_lr_curve(data, output_path / 'lr_curve.png')
 
-    # 5. 混淆矩阵和 CAM（需要模型和数据）
+    # 5. 混淆矩阵、CAM、指标汇总（需要模型和数据）
     if model_path and data_dir:
         print(f"\n加载模型: {model_path}")
         checkpoint = torch.load(model_path, map_location='cpu')
@@ -335,6 +472,9 @@ def plot_all(csv_path, model_path=None, data_dir=None, output_dir='./visualizati
 
         # 6. CAM 热力图
         plot_cam_samples(model, dataset, device, output_path / 'cam_heatmaps')
+
+        # 7. 指标汇总（Precision、Recall、F1、AUC）
+        plot_metrics_summary(csv_path, model_path, data_dir, output_path / 'metrics_summary.png')
 
     print(f"\n所有图表已保存至: {output_dir}")
 
