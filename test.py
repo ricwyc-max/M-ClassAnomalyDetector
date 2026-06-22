@@ -24,11 +24,20 @@ from sklearn.metrics import (
 )
 from model import ResNet50
 from train import AnomalyDataset, save_cam_heatmap, save_cam_all_classes
+from colors import (
+    R100, R50, R20, R10, R5, R1,
+    get_class_colors, get_cmap_rmb, get_loss_colors, get_acc_colors,
+    get_bar_colors_4, get_grid_bg, get_canvas_bg
+)
 import cv2
 
 # 中文字体设置
 plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans']
 plt.rcParams['axes.unicode_minus'] = False
+
+# 人民币配色
+GRID_COLOR = get_grid_bg()
+CANVAS_BG = get_canvas_bg()
 
 
 def load_model(model_path, device='cpu'):
@@ -112,29 +121,33 @@ def plot_roc_curves(all_labels, all_probs, class_names, save_path):
     tpr['macro'] = mean_tpr
     roc_auc['macro'] = np.mean([roc_auc[i] for i in roc_auc])
 
-    # 绘图
+    # 绘图 - 使用人民币配色
     fig, ax = plt.subplots(figsize=(10, 8))
-    colors = plt.cm.tab10(np.linspace(0, 1, n_classes))
+    fig.patch.set_facecolor(CANVAS_BG)
+    ax.set_facecolor(CANVAS_BG)
+
+    class_colors = get_class_colors(n_classes)
 
     for i in range(n_classes):
         if i in fpr:
-            ax.plot(fpr[i], tpr[i], color=colors[i], lw=1.5,
+            ax.plot(fpr[i], tpr[i], color=class_colors[i], lw=1.8,
                     label=f'{class_names[i]} (AUC={roc_auc[i]:.3f})')
 
-    ax.plot(fpr['macro'], tpr['macro'], 'k--', lw=2,
+    # 宏平均用100元红色强调
+    ax.plot(fpr['macro'], tpr['macro'], color=R100[4], lw=2.5, linestyle='--',
             label=f'Macro Average (AUC={roc_auc["macro"]:.3f})')
 
-    ax.plot([0, 1], [0, 1], 'gray', lw=1, linestyle='--')
+    ax.plot([0, 1], [0, 1], color=R1[2], lw=1, linestyle='--')
     ax.set_xlim([0.0, 1.0])
     ax.set_ylim([0.0, 1.05])
     ax.set_xlabel('False Positive Rate', fontsize=12)
     ax.set_ylabel('True Positive Rate', fontsize=12)
-    ax.set_title('ROC Curves', fontsize=14)
-    ax.legend(loc='lower right', fontsize=9)
-    ax.grid(True, alpha=0.3)
+    ax.set_title('ROC Curves', fontsize=14, fontweight='bold')
+    ax.legend(loc='lower right', fontsize=9, framealpha=0.9)
+    ax.grid(True, alpha=0.3, color=GRID_COLOR)
 
     fig.tight_layout()
-    fig.savefig(str(save_path), dpi=150)
+    fig.savefig(str(save_path), dpi=150, facecolor=fig.get_facecolor())
     plt.close(fig)
     print(f"  ROC 曲线: {save_path}")
 
@@ -156,26 +169,34 @@ def plot_pr_curves(all_labels, all_probs, class_names, save_path):
         precision[i], recall[i], _ = precision_recall_curve(binary_labels, all_probs[:, i])
         pr_auc[i] = average_precision_score(binary_labels, all_probs[:, i])
 
-    # 绘图
+    # 绘图 - 使用人民币配色
     fig, ax = plt.subplots(figsize=(10, 8))
-    colors = plt.cm.tab10(np.linspace(0, 1, n_classes))
+    fig.patch.set_facecolor(CANVAS_BG)
+    ax.set_facecolor(CANVAS_BG)
+
+    class_colors = get_class_colors(n_classes)
 
     for i in range(n_classes):
         if i in precision:
-            ax.plot(recall[i], precision[i], color=colors[i], lw=1.5,
+            ax.plot(recall[i], precision[i], color=class_colors[i], lw=1.8,
                     label=f'{class_names[i]} (AP={pr_auc[i]:.3f})')
 
     macro_ap = np.mean([pr_auc[i] for i in pr_auc])
+
+    # 添加宏平均线（100元红色）
+    ax.axhline(y=macro_ap, color=R100[4], lw=1.5, linestyle=':', alpha=0.7,
+               label=f'Macro AP={macro_ap:.3f}')
+
     ax.set_xlim([0.0, 1.0])
     ax.set_ylim([0.0, 1.05])
     ax.set_xlabel('Recall', fontsize=12)
     ax.set_ylabel('Precision', fontsize=12)
-    ax.set_title(f'Precision-Recall Curves (Macro AP={macro_ap:.3f})', fontsize=14)
-    ax.legend(loc='lower left', fontsize=9)
-    ax.grid(True, alpha=0.3)
+    ax.set_title('Precision-Recall Curves', fontsize=14, fontweight='bold')
+    ax.legend(loc='lower left', fontsize=9, framealpha=0.9)
+    ax.grid(True, alpha=0.3, color=GRID_COLOR)
 
     fig.tight_layout()
-    fig.savefig(str(save_path), dpi=150)
+    fig.savefig(str(save_path), dpi=150, facecolor=fig.get_facecolor())
     plt.close(fig)
     print(f"  PR 曲线: {save_path}")
 
@@ -187,13 +208,18 @@ def plot_confusion_matrix(all_labels, all_preds, class_names, save_path):
     cm = confusion_matrix(all_labels, all_preds)
     cm_norm = cm.astype('float') / cm.sum(axis=1, keepdims=True)
 
+    # 使用10元蓝色系作为混淆矩阵配色
+    cmap_rmb = get_cmap_rmb('blue')
+
     fig, axes = plt.subplots(1, 2, figsize=(18, 7))
+    fig.patch.set_facecolor(CANVAS_BG)
 
     # 原始混淆矩阵
     ax = axes[0]
-    im = ax.imshow(cm, interpolation='nearest', cmap=plt.cm.Blues)
-    ax.set_title('Confusion Matrix (Counts)', fontsize=13)
-    fig.colorbar(im, ax=ax)
+    ax.set_facecolor(CANVAS_BG)
+    im = ax.imshow(cm, interpolation='nearest', cmap=cmap_rmb)
+    ax.set_title('Confusion Matrix (Counts)', fontsize=13, fontweight='bold')
+    cbar = fig.colorbar(im, ax=ax)
     tick_marks = np.arange(len(class_names))
     ax.set_xticks(tick_marks)
     ax.set_yticks(tick_marks)
@@ -209,9 +235,10 @@ def plot_confusion_matrix(all_labels, all_preds, class_names, save_path):
 
     # 归一化混淆矩阵
     ax = axes[1]
-    im = ax.imshow(cm_norm, interpolation='nearest', cmap=plt.cm.Blues, vmin=0, vmax=1)
-    ax.set_title('Confusion Matrix (Normalized)', fontsize=13)
-    fig.colorbar(im, ax=ax)
+    ax.set_facecolor(CANVAS_BG)
+    im = ax.imshow(cm_norm, interpolation='nearest', cmap=cmap_rmb, vmin=0, vmax=1)
+    ax.set_title('Confusion Matrix (Normalized)', fontsize=13, fontweight='bold')
+    cbar = fig.colorbar(im, ax=ax)
     ax.set_xticks(tick_marks)
     ax.set_yticks(tick_marks)
     ax.set_xticklabels(class_names, rotation=45, ha='right', fontsize=9)
@@ -224,7 +251,7 @@ def plot_confusion_matrix(all_labels, all_preds, class_names, save_path):
                     color='white' if cm_norm[i, j] > 0.5 else 'black', fontsize=8)
 
     fig.tight_layout()
-    fig.savefig(str(save_path), dpi=150)
+    fig.savefig(str(save_path), dpi=150, facecolor=fig.get_facecolor())
     plt.close(fig)
     print(f"  混淆矩阵: {save_path}")
 

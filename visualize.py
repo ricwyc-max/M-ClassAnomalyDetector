@@ -29,10 +29,19 @@ import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 from model import ResNet50
 from train import AnomalyDataset
+from colors import (
+    R100, R50, R20, R10, R5, R1,
+    get_class_colors, get_cmap_rmb, get_loss_colors, get_acc_colors,
+    get_bar_colors_4, get_grid_bg, get_canvas_bg
+)
 
 # 中文字体设置
 plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans']
 plt.rcParams['axes.unicode_minus'] = False
+
+# 人民币配色
+GRID_COLOR = get_grid_bg()
+CANVAS_BG = get_canvas_bg()
 
 
 def read_csv(csv_path):
@@ -86,54 +95,68 @@ def read_csv(csv_path):
 
 def plot_loss_curve(data, save_path):
     """绘制损失曲线"""
+    train_color, val_color = get_loss_colors()
+
     fig, ax = plt.subplots(figsize=(10, 6))
-    ax.plot(data['epochs'], data['train_loss'], 'b-', label='Train Loss', linewidth=2)
-    ax.plot(data['epochs'], data['val_loss'], 'r-', label='Val Loss', linewidth=2)
+    fig.patch.set_facecolor(CANVAS_BG)
+    ax.set_facecolor(CANVAS_BG)
+
+    ax.plot(data['epochs'], data['train_loss'], color=train_color, label='Train Loss', linewidth=2)
+    ax.plot(data['epochs'], data['val_loss'], color=val_color, label='Val Loss', linewidth=2)
     ax.set_xlabel('Epoch', fontsize=12)
     ax.set_ylabel('Loss', fontsize=12)
-    ax.set_title('Training & Validation Loss', fontsize=14)
-    ax.legend(fontsize=11)
-    ax.grid(True, alpha=0.3)
+    ax.set_title('Training & Validation Loss', fontsize=14, fontweight='bold')
+    ax.legend(fontsize=11, framealpha=0.9)
+    ax.grid(True, alpha=0.3, color=GRID_COLOR)
     fig.tight_layout()
-    fig.savefig(str(save_path), dpi=150)
+    fig.savefig(str(save_path), dpi=150, facecolor=fig.get_facecolor())
     plt.close(fig)
     print(f"  损失曲线: {save_path}")
 
 
 def plot_acc_curve(data, save_path):
     """绘制整体准确率曲线"""
+    train_color, val_color = get_acc_colors()
+
     fig, ax = plt.subplots(figsize=(10, 6))
-    ax.plot(data['epochs'], data['train_acc'], 'b-', label='Train Acc', linewidth=2)
-    ax.plot(data['epochs'], data['val_acc'], 'r-', label='Val Acc', linewidth=2)
+    fig.patch.set_facecolor(CANVAS_BG)
+    ax.set_facecolor(CANVAS_BG)
+
+    ax.plot(data['epochs'], data['train_acc'], color=train_color, label='Train Acc', linewidth=2)
+    ax.plot(data['epochs'], data['val_acc'], color=val_color, label='Val Acc', linewidth=2)
     ax.set_xlabel('Epoch', fontsize=12)
     ax.set_ylabel('Accuracy', fontsize=12)
-    ax.set_title('Training & Validation Accuracy', fontsize=14)
-    ax.legend(fontsize=11)
-    ax.grid(True, alpha=0.3)
+    ax.set_title('Training & Validation Accuracy', fontsize=14, fontweight='bold')
+    ax.legend(fontsize=11, framealpha=0.9)
+    ax.grid(True, alpha=0.3, color=GRID_COLOR)
     ax.set_ylim(0, 1.05)
     fig.tight_layout()
-    fig.savefig(str(save_path), dpi=150)
+    fig.savefig(str(save_path), dpi=150, facecolor=fig.get_facecolor())
     plt.close(fig)
     print(f"  准确率曲线: {save_path}")
 
 
 def plot_class_acc_curves(data, save_path):
     """绘制各类别准确率曲线"""
-    fig, ax = plt.subplots(figsize=(12, 7))
+    n_classes = len(data['class_names'])
+    class_colors = get_class_colors(n_classes)
 
-    colors = plt.cm.tab10(np.linspace(0, 1, len(data['class_names'])))
+    fig, ax = plt.subplots(figsize=(12, 7))
+    fig.patch.set_facecolor(CANVAS_BG)
+    ax.set_facecolor(CANVAS_BG)
+
     for i, cls_name in enumerate(data['class_names']):
         ax.plot(data['epochs'], data['class_accs'][cls_name],
-                color=colors[i], label=cls_name, linewidth=1.5)
+                color=class_colors[i], label=cls_name, linewidth=1.5)
 
     ax.set_xlabel('Epoch', fontsize=12)
     ax.set_ylabel('Accuracy', fontsize=12)
-    ax.set_title('Per-Class Validation Accuracy', fontsize=14)
-    ax.legend(fontsize=10, ncol=2, loc='lower right')
-    ax.grid(True, alpha=0.3)
+    ax.set_title('Per-Class Validation Accuracy', fontsize=14, fontweight='bold')
+    ax.legend(fontsize=10, ncol=2, loc='lower right', framealpha=0.9)
+    ax.grid(True, alpha=0.3, color=GRID_COLOR)
     ax.set_ylim(0, 1.05)
     fig.tight_layout()
-    fig.savefig(str(save_path), dpi=150)
+    fig.savefig(str(save_path), dpi=150, facecolor=fig.get_facecolor())
     plt.close(fig)
     print(f"  各类别准确率曲线: {save_path}")
 
@@ -141,13 +164,18 @@ def plot_class_acc_curves(data, save_path):
 def plot_lr_curve(data, save_path):
     """绘制学习率曲线"""
     fig, ax = plt.subplots(figsize=(10, 4))
-    ax.plot(data['epochs'], data['lr'], 'g-', linewidth=2)
+    fig.patch.set_facecolor(CANVAS_BG)
+    ax.set_facecolor(CANVAS_BG)
+
+    # 使用10元蓝色系
+    ax.fill_between(data['epochs'], data['lr'], alpha=0.3, color=R10[1])
+    ax.plot(data['epochs'], data['lr'], color=R10[3], linewidth=2)
     ax.set_xlabel('Epoch', fontsize=12)
     ax.set_ylabel('Learning Rate', fontsize=12)
-    ax.set_title('Learning Rate Schedule', fontsize=14)
-    ax.grid(True, alpha=0.3)
+    ax.set_title('Learning Rate Schedule', fontsize=14, fontweight='bold')
+    ax.grid(True, alpha=0.3, color=GRID_COLOR)
     fig.tight_layout()
-    fig.savefig(str(save_path), dpi=150)
+    fig.savefig(str(save_path), dpi=150, facecolor=fig.get_facecolor())
     plt.close(fig)
     print(f"  学习率曲线: {save_path}")
 
@@ -170,11 +198,16 @@ def plot_confusion_matrix(model, dataset, device, save_path):
             for t, p in zip(labels.numpy(), predicted.cpu().numpy()):
                 confusion[t][p] += 1
 
-    # 绘制热力图
+    # 使用10元蓝色系作为混淆矩阵配色
+    cmap_rmb = get_cmap_rmb('blue')
+
     fig, ax = plt.subplots(figsize=(10, 8))
-    im = ax.imshow(confusion, interpolation='nearest', cmap=plt.cm.Blues)
-    ax.set_title('Confusion Matrix', fontsize=14)
-    fig.colorbar(im, ax=ax)
+    fig.patch.set_facecolor(CANVAS_BG)
+    ax.set_facecolor(CANVAS_BG)
+
+    im = ax.imshow(confusion, interpolation='nearest', cmap=cmap_rmb)
+    ax.set_title('Confusion Matrix', fontsize=14, fontweight='bold')
+    cbar = fig.colorbar(im, ax=ax)
 
     tick_marks = np.arange(num_classes)
     ax.set_xticks(tick_marks)
@@ -194,7 +227,7 @@ def plot_confusion_matrix(model, dataset, device, save_path):
                     fontsize=8)
 
     fig.tight_layout()
-    fig.savefig(str(save_path), dpi=150)
+    fig.savefig(str(save_path), dpi=150, facecolor=fig.get_facecolor())
     plt.close(fig)
     print(f"  混淆矩阵: {save_path}")
 
@@ -341,60 +374,67 @@ def plot_metrics_summary(csv_path, model_path, data_dir, save_path):
         f1s.append(f)
         aucs.append(auc)
 
-    # 绘图
+    # 绘图 - 使用人民币配色四宫格
+    bar_colors = get_bar_colors_4()  # 红/褐/绿/紫
+
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    fig.patch.set_facecolor(CANVAS_BG)
 
     x = np.arange(len(class_names))
     width = 0.6
 
-    # Precision
+    # Precision (100元红)
     ax = axes[0, 0]
-    bars = ax.bar(x, precisions, width, color='steelblue')
-    ax.set_title('Precision per Class', fontsize=13)
+    ax.set_facecolor(CANVAS_BG)
+    bars = ax.bar(x, precisions, width, color=bar_colors[0], edgecolor='white', linewidth=0.5)
+    ax.set_title('Precision per Class', fontsize=13, fontweight='bold')
     ax.set_ylabel('Precision', fontsize=11)
     ax.set_xticks(x)
     ax.set_xticklabels(class_names, rotation=45, ha='right', fontsize=8)
     ax.set_ylim(0, 1.1)
-    ax.grid(True, alpha=0.3, axis='y')
+    ax.grid(True, alpha=0.3, axis='y', color=GRID_COLOR)
     for bar, v in zip(bars, precisions):
         ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.02,
                 f'{v:.2f}', ha='center', fontsize=7)
 
-    # Recall
+    # Recall (20元褐)
     ax = axes[0, 1]
-    bars = ax.bar(x, recalls, width, color='darkorange')
-    ax.set_title('Recall per Class', fontsize=13)
+    ax.set_facecolor(CANVAS_BG)
+    bars = ax.bar(x, recalls, width, color=bar_colors[1], edgecolor='white', linewidth=0.5)
+    ax.set_title('Recall per Class', fontsize=13, fontweight='bold')
     ax.set_ylabel('Recall', fontsize=11)
     ax.set_xticks(x)
     ax.set_xticklabels(class_names, rotation=45, ha='right', fontsize=8)
     ax.set_ylim(0, 1.1)
-    ax.grid(True, alpha=0.3, axis='y')
+    ax.grid(True, alpha=0.3, axis='y', color=GRID_COLOR)
     for bar, v in zip(bars, recalls):
         ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.02,
                 f'{v:.2f}', ha='center', fontsize=7)
 
-    # F1-Score
+    # F1-Score (50元绿)
     ax = axes[1, 0]
-    bars = ax.bar(x, f1s, width, color='green')
-    ax.set_title('F1-Score per Class', fontsize=13)
+    ax.set_facecolor(CANVAS_BG)
+    bars = ax.bar(x, f1s, width, color=bar_colors[2], edgecolor='white', linewidth=0.5)
+    ax.set_title('F1-Score per Class', fontsize=13, fontweight='bold')
     ax.set_ylabel('F1-Score', fontsize=11)
     ax.set_xticks(x)
     ax.set_xticklabels(class_names, rotation=45, ha='right', fontsize=8)
     ax.set_ylim(0, 1.1)
-    ax.grid(True, alpha=0.3, axis='y')
+    ax.grid(True, alpha=0.3, axis='y', color=GRID_COLOR)
     for bar, v in zip(bars, f1s):
         ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.02,
                 f'{v:.2f}', ha='center', fontsize=7)
 
-    # AUC
+    # AUC (5元紫)
     ax = axes[1, 1]
-    bars = ax.bar(x, aucs, width, color='crimson')
-    ax.set_title('AUC per Class', fontsize=13)
+    ax.set_facecolor(CANVAS_BG)
+    bars = ax.bar(x, aucs, width, color=bar_colors[3], edgecolor='white', linewidth=0.5)
+    ax.set_title('AUC per Class', fontsize=13, fontweight='bold')
     ax.set_ylabel('AUC', fontsize=11)
     ax.set_xticks(x)
     ax.set_xticklabels(class_names, rotation=45, ha='right', fontsize=8)
     ax.set_ylim(0, 1.1)
-    ax.grid(True, alpha=0.3, axis='y')
+    ax.grid(True, alpha=0.3, axis='y', color=GRID_COLOR)
     for bar, v in zip(bars, aucs):
         ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.02,
                 f'{v:.2f}', ha='center', fontsize=7)
@@ -405,10 +445,10 @@ def plot_metrics_summary(csv_path, model_path, data_dir, save_path):
     macro_f = np.mean(f1s)
     macro_auc = np.mean(aucs)
     fig.suptitle(f'Macro Avg — P: {macro_p:.3f}  R: {macro_r:.3f}  F1: {macro_f:.3f}  AUC: {macro_auc:.3f}',
-                 fontsize=12, y=1.02)
+                 fontsize=12, y=1.02, fontweight='bold')
 
     fig.tight_layout()
-    fig.savefig(str(save_path), dpi=150, bbox_inches='tight')
+    fig.savefig(str(save_path), dpi=150, bbox_inches='tight', facecolor=fig.get_facecolor())
     plt.close(fig)
     print(f"  指标汇总: {save_path}")
 
