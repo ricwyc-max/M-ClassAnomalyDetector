@@ -235,6 +235,10 @@ python test.py
 
 ![混淆矩阵](test_results/confusion_matrix.png)
 
+### 测试样本结果
+
+![测试样本汇总](test_results/test_images/summary.png)
+
 ### 指标汇总
 
 ![指标汇总](visualizations/metrics_summary.png)
@@ -248,6 +252,30 @@ python test.py
 | 各类别准确率 | 学习率曲线 |
 |:------------:|:----------:|
 | ![各类别准确率](visualizations/class_acc_curves.png) | ![学习率曲线](visualizations/lr_curve.png) |
+
+### CAM 类激活图
+
+所有类别的 CAM 热力图拼接：
+
+![CAM 全类别](visualizations/cam_heatmaps/_all_classes.png)
+
+各类别单独热力图：
+
+| bent_wire | cable_swap | combined |
+|:---------:|:----------:|:--------:|
+| ![bent_wire](visualizations/cam_heatmaps/bent_wire.png) | ![cable_swap](visualizations/cam_heatmaps/cable_swap.png) | ![combined](visualizations/cam_heatmaps/combined.png) |
+
+| cut_inner_insulation | cut_outer_insulation | missing_cable |
+|:--------------------:|:--------------------:|:-------------:|
+| ![cut_inner](visualizations/cam_heatmaps/cut_inner_insulation.png) | ![cut_outer](visualizations/cam_heatmaps/cut_outer_insulation.png) | ![missing_cable](visualizations/cam_heatmaps/missing_cable.png) |
+
+| missing_wire | poke_insulation | normal |
+|:------------:|:---------------:|:------:|
+| ![missing_wire](visualizations/cam_heatmaps/missing_wire.png) | ![poke_insulation](visualizations/cam_heatmaps/poke_insulation.png) | ![normal](visualizations/cam_heatmaps/normal.png) |
+
+### 样本分布
+
+![样本分布](sample_distribution.png)
 
 ## 参考论文
 

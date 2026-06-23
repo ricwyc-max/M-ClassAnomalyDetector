@@ -10,4 +10,3 @@
 # 忽略测试结果中的大文件，但保留图片
 /test_results/test_images/
 /test_results/classification_report.txt
-/visualizations/cam_heatmaps/
