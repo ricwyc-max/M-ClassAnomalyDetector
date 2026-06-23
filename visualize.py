@@ -182,7 +182,7 @@ def plot_lr_curve(data, save_path):
 
 def plot_confusion_matrix(model, dataset, device, save_path):
     """绘制混淆矩阵热力图"""
-    loader = DataLoader(dataset, batch_size=16, shuffle=False, num_workers=0)
+    loader = DataLoader(dataset, batch_size=8, shuffle=False, num_workers=0)
 
     class_names = dataset.class_names
     num_classes = len(class_names)
@@ -236,7 +236,7 @@ def plot_cam_samples(model, dataset, device, save_path):
     """绘制最终测试的 CAM 热力图（每个类别一张）"""
     from train import save_cam_heatmap, save_cam_all_classes
 
-    loader = DataLoader(dataset, batch_size=16, shuffle=False, num_workers=0)
+    loader = DataLoader(dataset, batch_size=8, shuffle=False, num_workers=0)
     class_names = dataset.class_names
     num_classes = len(class_names)
 
@@ -255,6 +255,10 @@ def plot_cam_samples(model, dataset, device, save_path):
                 if cls_idx not in cam_samples:
                     pred_idx = predicted[i].item()
                     cam_samples[cls_idx] = (images[i].cpu(), cam[i].cpu(), pred_idx)
+
+            # 及时释放显存
+            del outputs, cam
+            torch.cuda.empty_cache()
 
             if len(cam_samples) == num_classes:
                 break
@@ -331,7 +335,7 @@ def plot_metrics_summary(csv_path, model_path, data_dir, save_path):
     model.eval()
 
     dataset = AnomalyDataset(data_dir, img_size=img_size)
-    loader = DataLoader(dataset, batch_size=16, shuffle=False, num_workers=0)
+    loader = DataLoader(dataset, batch_size=8, shuffle=False, num_workers=0)
 
     all_labels = []
     all_preds = []
@@ -535,7 +539,7 @@ if __name__ == '__main__':
     MODEL_PATH = 'best_model.pth'
 
     # 数据目录（需要 MODEL_PATH 时使用）
-    DATA_DIR = './data/augmented'
+    DATA_DIR = r'./data/data_root\test'
 
     # 输出目录
     OUTPUT_DIR = './visualizations'

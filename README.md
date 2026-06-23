@@ -183,6 +183,72 @@ return x
 probs = torch.softmax(logits, dim=1)
 ```
 
+### 5. 模型测试
+
+```bash
+python test.py
+```
+
+生成测试报告（保存至 `test_results/`）：
+- 分类指标：Precision、Recall、F1-score、AUC
+- ROC 曲线和 PR 曲线
+- 混淆矩阵（原始计数 + 归一化）
+- 测试图片结果（正确/错误样本的 CAM 热力图）
+
+主要参数（在 `__main__` 中修改）：
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `model_path` | `best_model.pth` | 模型文件路径 |
+| `data_dir` | `./data/data_root/test` | 测试数据目录 |
+| `batch_size` | 8 | 批大小 |
+| `output_dir` | `./test_results` | 结果输出目录 |
+
+## 测试结果
+
+### 分类指标
+
+| 类别 | Precision | Recall | F1-Score | Support |
+|------|-----------|--------|----------|---------|
+| bent_wire | 1.00 | 1.00 | 1.00 | 13 |
+| cable_swap | 0.92 | 1.00 | 0.96 | 12 |
+| combined | 1.00 | 1.00 | 1.00 | 11 |
+| cut_inner_insulation | 1.00 | 1.00 | 1.00 | 14 |
+| cut_outer_insulation | 1.00 | 1.00 | 1.00 | 10 |
+| missing_cable | 1.00 | 1.00 | 1.00 | 12 |
+| missing_wire | 1.00 | 1.00 | 1.00 | 10 |
+| poke_insulation | 1.00 | 1.00 | 1.00 | 10 |
+| normal | 1.00 | 0.98 | 0.99 | 58 |
+
+- **整体准确率**：99%
+- **Macro Average AUC**：1.0000
+
+### ROC 曲线
+
+![ROC 曲线](test_results/roc_curves.png)
+
+### PR 曲线
+
+![PR 曲线](test_results/pr_curves.png)
+
+### 混淆矩阵
+
+![混淆矩阵](test_results/confusion_matrix.png)
+
+### 指标汇总
+
+![指标汇总](visualizations/metrics_summary.png)
+
+### 训练曲线
+
+| 损失曲线 | 准确率曲线 |
+|:--------:|:----------:|
+| ![损失曲线](visualizations/loss_curve.png) | ![准确率曲线](visualizations/acc_curve.png) |
+
+| 各类别准确率 | 学习率曲线 |
+|:------------:|:----------:|
+| ![各类别准确率](visualizations/class_acc_curves.png) | ![学习率曲线](visualizations/lr_curve.png) |
+
 ## 参考论文
 
 1. He et al., "Deep Residual Learning for Image Recognition", CVPR 2016

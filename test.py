@@ -11,7 +11,7 @@ import os
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader
 from pathlib import Path
 import matplotlib
 matplotlib.use('Agg')
@@ -90,6 +90,10 @@ def evaluate_model(model, dataloader, device, num_classes):
             all_probs.extend(probs.cpu().numpy())
             all_images.extend(images.cpu())
             all_cams.extend(cam.cpu())
+
+            # 及时释放显存
+            del outputs, cam, probs
+            torch.cuda.empty_cache()
 
     return (np.array(all_labels), np.array(all_preds),
             np.array(all_probs), all_images, all_cams)
@@ -205,8 +209,12 @@ def plot_pr_curves(all_labels, all_probs, class_names, save_path):
 
 def plot_confusion_matrix(all_labels, all_preds, class_names, save_path):
     """绘制混淆矩阵（原始 + 归一化）"""
-    cm = confusion_matrix(all_labels, all_preds)
-    cm_norm = cm.astype('float') / cm.sum(axis=1, keepdims=True)
+    num_classes = len(class_names)
+    cm = confusion_matrix(all_labels, all_preds, labels=list(range(num_classes)))
+    # 避免除以零
+    row_sums = cm.sum(axis=1, keepdims=True)
+    row_sums[row_sums == 0] = 1
+    cm_norm = cm.astype('float') / row_sums
 
     # 使用10元蓝色系作为混淆矩阵配色
     cmap_rmb = get_cmap_rmb('blue')
@@ -376,7 +384,7 @@ def _save_summary_grid(all_images, all_labels, all_preds, all_probs, all_cams,
 def test(
     model_path='best_model.pth',
     data_dir='./data/augmented',
-    batch_size=16,
+    batch_size=8,
     device='cuda',
     output_dir='./test_results',
 ):
@@ -408,21 +416,14 @@ def test(
     print(f"\n加载数据集: {data_dir}")
     dataset = AnomalyDataset(data_dir, img_size=img_size)
 
-    # 使用与训练相同的随机种子划分
-    train_size = int(0.8 * len(dataset))
-    val_size = len(dataset) - train_size
-    _, val_dataset = random_split(
-        dataset, [train_size, val_size],
-        generator=torch.Generator().manual_seed(42)
-    )
-
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
-    print(f"  测试集大小: {len(val_dataset)}")
+    # 测试时直接使用整个数据集，不再划分
+    test_loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+    print(f"  测试集大小: {len(dataset)}")
 
     # 评估
     print("\n评估中...")
     all_labels, all_preds, all_probs, all_images, all_cams = \
-        evaluate_model(model, val_loader, device, num_classes)
+        evaluate_model(model, test_loader, device, num_classes)
 
     # 计算指标
     print("\n" + "=" * 60)
@@ -446,12 +447,13 @@ def test(
 
     for i, name in enumerate(class_names):
         mask = (all_labels == i)
-        if mask.sum() == 0:
-            continue
-        p = precision_score(all_labels == i, all_preds == i)
-        r = recall_score(all_labels == i, all_preds == i)
-        f = f1_score(all_labels == i, all_preds == i)
         s = mask.sum()
+        if s == 0:
+            print(f"{name:<25} {'N/A':<12} {'N/A':<12} {'N/A':<12} {0:<10}")
+            continue
+        p = precision_score(all_labels == i, all_preds == i, zero_division=0)
+        r = recall_score(all_labels == i, all_preds == i, zero_division=0)
+        f = f1_score(all_labels == i, all_preds == i, zero_division=0)
         print(f"{name:<25} {p:<12.4f} {r:<12.4f} {f:<12.4f} {s:<10}")
 
     # AUC（每类 + 宏平均）
@@ -472,7 +474,7 @@ def test(
     print(f"  Macro Average: {macro_auc:.4f}")
 
     # 分类报告（保存到文件）
-    report = classification_report(all_labels, all_preds, target_names=class_names)
+    report = classification_report(all_labels, all_preds, labels=list(range(num_classes)), target_names=class_names, zero_division=0)
     report_path = output_path / 'classification_report.txt'
     with open(report_path, 'w', encoding='utf-8') as f:
         f.write("Classification Report\n")
@@ -515,8 +517,8 @@ def test(
 if __name__ == '__main__':
     test(
         model_path='best_model.pth',
-        data_dir='./data/augmented',
-        batch_size=16,
+        data_dir=r'./data/data_root\test',
+        batch_size=8,
         device='cuda',
         output_dir='./test_results',
     )
